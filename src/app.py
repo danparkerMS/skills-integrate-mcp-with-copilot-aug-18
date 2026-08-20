@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 import os
 from pathlib import Path
+from threading import Lock
 
 app = FastAPI(title="Mergington High School API",
               description="API for viewing and signing up for extracurricular activities")
@@ -77,6 +78,8 @@ activities = {
     }
 }
 
+activity_mutation_lock = Lock()
+
 
 @app.get("/")
 def root():
@@ -98,15 +101,22 @@ def signup_for_activity(activity_name: str, email: str):
     # Get the specific activity
     activity = activities[activity_name]
 
-    # Validate student is not already signed up
-    if email in activity["participants"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Student is already signed up"
-        )
+    with activity_mutation_lock:
+        # Validate student is not already signed up
+        if email in activity["participants"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Student is already signed up"
+            )
 
-    # Add student
-    activity["participants"].append(email)
+        if len(activity["participants"]) >= activity["max_participants"]:
+            raise HTTPException(
+                status_code=409,
+                detail="Activity is full"
+            )
+
+        # Add student
+        activity["participants"].append(email)
     return {"message": f"Signed up {email} for {activity_name}"}
 
 
@@ -120,13 +130,14 @@ def unregister_from_activity(activity_name: str, email: str):
     # Get the specific activity
     activity = activities[activity_name]
 
-    # Validate student is signed up
-    if email not in activity["participants"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Student is not signed up for this activity"
-        )
+    with activity_mutation_lock:
+        # Validate student is signed up
+        if email not in activity["participants"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Student is not signed up for this activity"
+            )
 
-    # Remove student
-    activity["participants"].remove(email)
+        # Remove student
+        activity["participants"].remove(email)
     return {"message": f"Unregistered {email} from {activity_name}"}
